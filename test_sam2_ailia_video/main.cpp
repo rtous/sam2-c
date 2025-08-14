@@ -12,12 +12,51 @@
 ->ONNXpreprocess(encoder)->append_image()-> first frame YES -> annotate_frame() -> process_frame()
                                                                                 |
                                                          NO ---------------------
+
+process_frame() = 
+image_encoder + memory_banck 
+  -> memory_attention + prompt_encoder
+    -> image_decoder 
+      -> memory_encoder 
+        -> memory_bank
+
 NOTE: annotate_frame() - Sets up initial object tracking with user prompts
 */
 
+//TODO
+/*
+cv::Mat interpolate(const cv::Mat& low_res_multimasks, cv::Size image_size) {
+    // low_res_multimasks: shape [B, C, H, W] stored as a 4D cv::Mat
+    // image_size: target size (width, height)
+    
+    int B = low_res_multimasks.size[0];
+    int C = low_res_multimasks.size[1];
+    int H = image_size.height;
+    int W = image_size.width;
 
+    int dims[4] = {B, C, H, W};
+    cv::Mat high_res_multimasks(4, dims, CV_32F, cv::Scalar(0));
 
+    for (int b = 0; b < B; ++b) {
+        for (int c = 0; c < C; ++c) {
+            // Extract [H_low, W_low] single-channel slice
+            cv::Mat low_res_slice = low_res_multimasks(cv::Range(b, b+1), cv::Range(c, c+1))
+                .reshape(1, low_res_multimasks.size[2]); // now [H_low, W_low]
 
+            cv::Mat high_res_slice;
+            cv::resize(low_res_slice, high_res_slice, image_size, 0, 0, cv::INTER_LINEAR);
+
+            // Copy back into destination
+            high_res_slice.copyTo(
+                high_res_multimasks(cv::Range(b, b+1), cv::Range(c, c+1))
+                    .reshape(1, H) // shape [H, W]
+            );
+        }
+    }
+
+    return high_res_multimasks;
+}
+*/
 
 class InferenceState {
 public:
@@ -58,7 +97,7 @@ void inference_frame(cv::Mat image,
 
   // 2) Read input image (or input video)
   //printf("Reading input image...\n");
-  std::vector<cv::Mat> input_images;
+  
   //cv::Mat image = cv::imread("band.jpg", cv::IMREAD_COLOR);
   //if(image.empty())
   //{
@@ -71,6 +110,7 @@ void inference_frame(cv::Mat image,
 
   //3) preprocess input image (opencv to onnx format)
   printf("Preprocessing input image...\n");
+  std::vector<cv::Mat> input_images;
   preprocess(image, input_images); //Add image to the vector (as is the first will be in pos [0])
   
   /////////////////
@@ -198,6 +238,8 @@ void inference_frame(cv::Mat image,
   //input_name= [attention_mask_1] ===> [-1,1] ===> bool
   //input_name= [attention_mask_2] ===> [-1,1] ===> bool
   //output_name= [pix_feat] ===> [4096,1,256] ===> float32
+  //vs ryouchinsa:
+  //
 
   if (frame_num > 0)
   {
@@ -253,65 +295,27 @@ void inference_frame(cv::Mat image,
   printf("Preparing input tensor (image decoder)...\n");
   std::vector<Ort::Value> img_decoder_input_tensor;
   
-  //[image_embeddings]
+  //[vision_features]
+  //work with a copy as we will use again in memory_encoder
   int img_encoder_out_vision_features_idx = img_encoder.outputIdxByName("vision_features");
-  img_decoder_input_tensor.push_back(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));    // image_embed
+  //img_decoder_input_tensor.push_back(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));    // vision_features
+  TensorCopy img_encoder_out_vision_features = setTensorCopy(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));  
+  img_decoder_input_tensor.push_back(getTensorCopy(img_encoder_out_vision_features, memory_info));
   
   //[image_pe]
   int prompt_encoder_out_dense_pe_idx = prompt_encoder.outputIdxByName("dense_pe");
   //img_decoder_input_tensor.push_back(std::move(prompt_encoder_out[prompt_encoder_out_dense_pe_idx]));    // image_embed
-  
-  /* 
-  //WORKS 
-  size_t obj_buffer_size = 1;//1+0,1+1,1+2,...,1+15
-  //std::vector<int64_t> dimensions_0{(int64_t)obj_buffer_size,1*256*64*64}; // [y,256]
-  std::vector<int64_t> dimensions_0 = prompt_encoder.outputs[prompt_encoder_out_dense_pe_idx].shape;
-  printf("dimensions_0 ===> %s\n", shape2string(dimensions_0).c_str());
-  std::vector<float> obj_ptrs(obj_buffer_size*1*256*64*64); // first+recent // 16*256
-  const float* tensor_data = inference_state.obj_ptr_first[0].GetTensorData<float>();
-  std::copy_n(tensor_data, 1*256*64*64, std::begin(obj_ptrs));
-  auto memory_1 = Ort::Value::CreateTensor<float>(
-                  memory_info,
-                  obj_ptrs.data(),
-                  obj_ptrs.size(),
-                  dimensions_0.data(),
-                  dimensions_0.size()
-                  );
-  img_decoder_input_tensor.push_back(std::move(memory_1));
-  */
-
-  /*
-  //WORKS
-  size_t obj_buffer_size = 1;//1+0,1+1,1+2,...,1+15
-  //std::vector<int64_t> dimensions_0{(int64_t)obj_buffer_size,1*256*64*64}; // [y,256]
-  std::vector<int64_t> dimensions_0 = prompt_encoder.outputs[prompt_encoder_out_dense_pe_idx].shape;
-  printf("dimensions_0 ===> %s\n", shape2string(dimensions_0).c_str());
-  std::vector<float> obj_ptrs(obj_buffer_size*1*256*64*64); // first+recent // 16*256
-  const float* tensor_data = inference_state.obj_ptr_first0.GetTensorData<float>();
-  std::copy_n(tensor_data, 1*256*64*64, std::begin(obj_ptrs));
-  auto memory_1 = Ort::Value::CreateTensor<float>(
-                  memory_info,
-                  obj_ptrs.data(),
-                  obj_ptrs.size(),
-                  dimensions_0.data(),
-                  dimensions_0.size()
-                  );
-  img_decoder_input_tensor.push_back(std::move(memory_1));
-  */
   img_decoder_input_tensor.push_back(getTensorCopy(inference_state.prompt_encoder_out_dense_pe, memory_info));
 
-  
   //[sparse_prompt_embeddings]
   int prompt_encoder_out_sparse_embeddings_idx = prompt_encoder.outputIdxByName("sparse_embeddings");
   //img_decoder_input_tensor.push_back(std::move(prompt_encoder_out[prompt_encoder_out_sparse_embeddings_idx]));    // image_embed
   img_decoder_input_tensor.push_back(getTensorCopy(inference_state.prompt_encoder_out_sparse_embeddings, memory_info));
 
-
   //[dense_prompt_embeddings]
   int prompt_encoder_out_dense_embeddings_idx = prompt_encoder.outputIdxByName("dense_embeddings");
   //img_decoder_input_tensor.push_back(std::move(prompt_encoder_out[prompt_encoder_out_dense_embeddings_idx]));    // image_embed
   img_decoder_input_tensor.push_back(getTensorCopy(inference_state.prompt_encoder_out_dense_embeddings, memory_info));
-
 
   //[high_res_features1]
   int img_encoder_out_high_res_features1_idx = img_encoder.outputIdxByName("backbone_fpn_0");
@@ -357,6 +361,47 @@ void inference_frame(cv::Mat image,
   printf("Preparing input tensors (mem_encoder)...\n");
   std::vector<Ort::Value> mem_encoder_input_tensor;
 
+  //[pix_feat] (TODO: this should be the attention output, but in aimol uses this)
+  //int img_encoder_out_vision_features_idx = img_encoder.outputIdxByName("vision_features");
+  //mem_encoder_input_tensor.push_back(std::move(img_encoder_out[img_encoder_out_vision_features_idx])); 
+  mem_encoder_input_tensor.push_back(std::move(getTensorCopy(img_encoder_out_vision_features, memory_info))); 
+  
+  //[masks] (We work with a copy as we will use img_decoder_out_masks later)
+  //the original mask is upscaled (with a function called interpolated)
+  int img_decoder_out_masks_idx = img_decoder.outputIdxByName("masks");
+  TensorCopy img_decoder_out_masks = setTensorCopy(std::move(img_decoder_out[img_decoder_out_masks_idx]));  
+  //mem_encoder_input_tensor.push_back(getTensorCopy(img_decoder_out_masks, memory_info));
+ 
+  float* maskValues_ = getTensorCopy(img_decoder_out_masks, memory_info).GetTensorMutableData<float>();
+  cv::Mat low_res_mask_(256, 256, CV_32FC1, maskValues_);
+  //cv::Mat low_res_mask; //TODO: Check if this is necessary
+  //low_res_mask_.convertTo(low_res_mask, CV_8UC1, 255);
+  cv::Mat high_res_mask;
+  cv::Size sam2_image_size = cv::Size(1024, 1024);
+  cv::resize(low_res_mask_, high_res_mask, sam2_image_size, 0, 0, cv::INTER_LINEAR);
+  //need to use the preprocess function to transform into a tensor)
+  std::vector<cv::Mat> input_masks;
+  preprocess(high_res_mask, input_masks); 
+  
+  //mem_encoder_input_tensor.push_back(getTensorCopy(img_decoder_out_masks, memory_info));
+  mem_encoder_input_tensor.push_back(std::move(Ort::Value::CreateTensor<float>(
+      memory_info,
+      input_masks[0].ptr<float>(),
+      input_masks[0].total(),
+      mem_encoder.inputs[mem_encoder.inputIdxByName("masks")].shape.data(),
+      mem_encoder.inputs[mem_encoder.inputIdxByName("masks")].shape.size()))
+  ); 
+
+  //3) RUN INFERENCE (mem_encoder decoder)
+  printf("Inference (mem_encoder)...\n");
+  std::vector<Ort::Value> mem_encoder_out  = mem_encoder.run(mem_encoder_input_tensor);
+  
+  //for frame_idx in temp_frame_inds:
+  //output_dict[storage_key][frame_idx] = consolidated_out
+  //_add_output_per_object()
+  //clear_non_cond_mem_around_input
+  //# clear temporary outputs in `temp_output_dict_per_obj`
+
 
   /////////////////
   // POSTPROCESS
@@ -378,9 +423,10 @@ void inference_frame(cv::Mat image,
     }
   }
 
-  int img_decoder_out_masks_idx = img_decoder.outputIdxByName("masks");
-  float* maskValues = img_decoder_out[img_decoder_out_masks_idx].GetTensorMutableData<float>();
-  
+  //As we use img_decoder_out_masks twice (before in the memory encoder) we need a copy. 
+  //float* maskValues = img_decoder_out[img_decoder_out_masks_idx].GetTensorMutableData<float>();
+  float* maskValues = getTensorCopy(img_decoder_out_masks, memory_info).GetTensorMutableData<float>();
+
   //original image size (ori_img_cols = image.size[1], ori_img_rows = image.size[0])
   std::vector<int64_t> orig_im_size_values_int64 = {ori_img_rows, ori_img_cols};
   

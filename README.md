@@ -5,6 +5,9 @@ IMPORTANT:
 
 LOG:
 	(top more recent)
+	- He aconseguit executar el memory encoder però cal:
+		- verificar que el resultat és el mateix que en Python
+		- he reescalat les màscares però hi ha dues opcions i no tinc clar si he triat la correcta (mirar codi)
 	- DONE: Reutilitzar el output del prompt encoder
 	- He provat els model d'ailia (tiny, 2.1, un frame) amb ryouchinsa i funciona :-)
 	- El d'aimiol no sembla funcionar, estic mirant el de ryouchinsa que vaig fer servir a Lester (https://github.com/ryouchinsa/sam-cpp-macos)
