@@ -58,6 +58,7 @@ TensorCopy setTensorCopy(Ort::Value src) {
   return tcopy;
 }
 
+
 Ort::Value getTensorCopy(TensorCopy& tcopy, Ort::MemoryInfo& memory_info) {
   auto tensor = Ort::Value::CreateTensor<float>(
                   memory_info,
@@ -68,6 +69,8 @@ Ort::Value getTensorCopy(TensorCopy& tcopy, Ort::MemoryInfo& memory_info) {
                   );
   return tensor;
 }
+
+
 
 static const char* OnnxTypeToString(ONNXTensorElementDataType type) {
     switch (type) {
@@ -89,6 +92,84 @@ static const char* OnnxTypeToString(ONNXTensorElementDataType type) {
         case ONNX_TENSOR_ELEMENT_DATA_TYPE_BFLOAT16:   return "bfloat16";
         default: return "unknown";
     }
+}
+
+//TO BE DELETED, BETTER USE printTensorCopyInfo
+void printTensorInfo(Ort::Value src) {
+  auto tensor_info = src.GetTensorTypeAndShapeInfo();
+  std::vector<int64_t> shape = tensor_info.GetShape();
+  auto src_size = tensor_info.GetElementCount();
+  auto type = tensor_info.GetElementType();
+  if (type != 1) {
+    printf("ERROR: Trying to use setTensorCopy with a non-float tensor.\n");
+    exit(-1);
+  }
+  printf("num elements = [%d]\n", src_size);
+  printf("shape = [%s]\n", shape2string(shape).c_str());
+  printf("type = [%s]\n", OnnxTypeToString(type));
+  std::vector<float> data(src_size);
+  const float* tensor_data = src.GetTensorData<float>();
+  std::copy_n(tensor_data, src_size, std::begin(data));
+  /*for(int i=0; i<shape.size(); i++) {
+    for(int j=0; j<shape[i]; j++) {
+        for(int k=0; k<) {
+            printf("%f, ", data[]);
+        }
+    }
+  }*/
+  printf("10 elements = ");
+  for(int i=0; i<10; i++) {
+    printf("%f, ", data[i]);
+  }
+
+}
+
+/*
+TensorCopy slice_1xNxC_to1x1xC(TensorCopy tcopy) {
+  TensorCopy tcopy_out;
+  int C = tcopy.info.shape[tcopy.info.shape.size()-1];
+  tcopy_out.info.shape = tcopy.info.shape;
+  tcopy_out.info.shape[1] = 1;
+  tcopy_out.info.type = tcopy.info.type;
+  tcopy_out.size = C;
+  tcopy_out.data.resize(tcopy_out.size);
+  std::copy_n(tcopy.data.data(), tcopy_out.size, std::begin(tcopy_out.data));
+  return tcopy;
+}*/
+
+void printTensorCopyInfo(TensorCopy tcopy) {
+  printf("num elements = [%d]\n", tcopy.size);
+  printf("shape = [%s]\n", shape2string(tcopy.info.shape).c_str());
+  printf("type = [%s]\n", OnnxTypeToString(tcopy.info.type));
+  printf("10 elements = ");
+  /*for(int i=0; i<10; i++) {
+    printf("%f, ", tcopy.data[i]);
+  }*/
+
+}
+
+//NOT USED YET
+TensorCopy slice_1xNxC_to1x1xC(TensorCopy tcopy) {
+  TensorCopy tcopy_out;
+  int C = tcopy.info.shape[tcopy.info.shape.size()-1];
+  tcopy_out.info.shape = tcopy.info.shape;
+  tcopy_out.info.shape[1] = 1;
+  tcopy_out.info.type = tcopy.info.type;
+  tcopy_out.size = C;
+  tcopy_out.data.resize(tcopy_out.size);
+  std::copy_n(tcopy.data.data(), C, std::begin(tcopy_out.data));
+  return tcopy_out;
+}
+
+TensorCopy slice_1xNxC_toNxC(TensorCopy tcopy) {
+  TensorCopy tcopy_out;
+  tcopy_out.info.shape = tcopy.info.shape;
+  tcopy_out.info.shape.erase(tcopy_out.info.shape.begin()); 
+  tcopy_out.info.type = tcopy.info.type;
+  tcopy_out.size = tcopy.size;
+  tcopy_out.data.resize(tcopy_out.size);
+  std::copy_n(tcopy.data.data(), tcopy_out.size, std::begin(tcopy_out.data));
+  return tcopy_out;
 }
 
 class OrtModel {

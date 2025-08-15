@@ -85,7 +85,7 @@ void inference_frame(cv::Mat image,
                     OrtModel &img_decoder, 
                     OrtModel &mem_encoder, 
                     OrtModel &mem_attention,
-                    OrtModel &mlp,
+                    OrtModel &mlp_hiera,
                     OrtModel &obj_ptr_tpos_proj_hiera,
                     InferenceState &inference_state)
 {
@@ -127,12 +127,10 @@ void inference_frame(cv::Mat image,
   //output_name= [backbone_fpn_1] ==> [1,64,128,128]
   //output_name= [backbone_fpn_2] ==> [1,256,64,64]
   //vs ryouchinsa:
-  //input_name= [image] ===> [1,3,1024,1024]
-  //output_name= [pix_feat] ==> [1,256,64,64]
-  //output_name= [high_res_feat0] ==> [1,32,256,256]
-  //output_name= [high_res_feat1] ==> [1,64,128,128]
-  //output_name= [vision_feats] ==> [1,256,64,64]
-  //output_name= [vision_pos_embed] ==> [4096,1,256]
+  //input_name= [input] ===> [1,3,1024,1024]
+  //output_name= [image_embeddings] ==> [1,256,64,64]
+  //output_name= [high_res_features1] ==> [1,32,256,256]
+  //output_name= [high_res_features2] ==> [1,64,128,128]
 
   //1) CREATE MODEL (image encoder)
   printf("/********** image encoder ***********/\n");
@@ -154,12 +152,6 @@ void inference_frame(cv::Mat image,
   //3) RUN INFERENCE (image encoder)
   printf("Inference (image encoder)...\n");
   std::vector<Ort::Value> img_encoder_out  = img_encoder.run(img_encoder_input_tensor);
-
-  //4) Save tensors that need to be reuse more than once:
-  //[vision_features]
-  int img_encoder_out_vision_features_idx = img_encoder.outputIdxByName("vision_features");
-  TensorCopy img_encoder_out_vision_features = setTensorCopy(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));  
-  
   
   //////////////////////
   // PROMPT ENCODER 
@@ -247,12 +239,7 @@ void inference_frame(cv::Mat image,
   //input_name= [attention_mask_2] ===> [-1,1] ===> bool
   //output_name= [pix_feat] ===> [4096,1,256] ===> float32
   //vs ryouchinsa:
-  //input_name= [current_vision_feat] ===> [1,256,64,64]
-  //input_name= [current_vision_pos_embed] ===> [4096,1,256]
-  //input_name= [memory_0] ===> [-1,256]
-  //input_name= [memory_1] ===> [-1,64,64,64]
-  //input_name= [memory_pos_embed] ===> [-1,1,64]
-  //output_name= [image_embed] ==> [1,256,64,64]
+  //
 
   if (frame_num > 0)
   {
@@ -265,47 +252,7 @@ void inference_frame(cv::Mat image,
       printf("Preparing input tensors (mem_attention)...\n");
       std::vector<Ort::Value> mem_attention_input_tensor;
 
-      /*ryouchinsa:
-        //img_encoder_out[3] in ryouchinsa ([high_res_feat1]->[current_vision_feat] [1,256,64,64])
-        //img_encoder_out[4] in ryouchinsa ([vision_pos_embed]->[current_vision_pos_embed] [4096,1,256])
-        //memory_1 in ryouchinsa ([memory_0]) Hi posa la màscara del frame primer
-        //memory_2 in ryouchinsa ([memory_1]) Hi posa la màscara del frame actual
-        //memory_pos_1 in ryouchinsa ([memory_pos_embed]) Ho calcula en base les tres sortides del mem_encoder
-        //memory_pos_2 in ryouchinsa???? 
-      */
-
-      //From image incoder ouputs:
-      //output_name= [vision_features] ==> [1,256,64,64]
-      //output_name= [vision_pos_enc_0] ==> [1,256,256,256]
-      //output_name= [vision_pos_enc_1] ==> [1,256,128,128]
-      //output_name= [vision_pos_enc_2] ==> [1,256,64,64]
-      //output_name= [backbone_fpn_0] ==> [1,32,256,256]
-      //output_name= [backbone_fpn_1] ==> [1,64,128,128]
-      //output_name= [backbone_fpn_2] ==> [1,256,64,64]
-
-      //[curr] ===> [4096,1,256] ===> float32
-      //img_decoder_input_tensor.push_back(getTensorCopy(img_encoder_out_vision_features, memory_info));
-  
-      //[memory_1] ===> [-1,1,64] ===> float32
-
-      //[memory_2] ===> [-1,1,64] ===> float32
-
-      //[curr_pos] ===> [4096,1,256] ===> float32
-
-      //[memory_pos_1] ===> [-1,1,64] ===> float32
-
-      //[memory_pos_2] ===> [-1,1,64] ===> float32
-
-      //[attention_mask_1] ===> [-1,1] ===> bool
-
-      //[attention_mask_2] ===> [-1,1] ===> bool
-
-      //3) RUN INFERENCE (mem_attention encoder)
-      //printf("Inference (mem_attention)...\n");
-      //std::vector<Ort::Value> mem_attention_out  = mem_attention.run(mem_attention_input_tensor);
-
   } else {
-    //TODO: What happens with the first frame???
     //mem_attention_out.push_back(std::move(img_encoder_out[3]));
   }
 
@@ -350,9 +297,9 @@ void inference_frame(cv::Mat image,
   
   //[vision_features]
   //work with a copy as we will use again in memory_encoder
-  //int img_encoder_out_vision_features_idx = img_encoder.outputIdxByName("vision_features");
+  int img_encoder_out_vision_features_idx = img_encoder.outputIdxByName("vision_features");
   //img_decoder_input_tensor.push_back(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));    // vision_features
-  //TensorCopy img_encoder_out_vision_features = setTensorCopy(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));  
+  TensorCopy img_encoder_out_vision_features = setTensorCopy(std::move(img_encoder_out[img_encoder_out_vision_features_idx]));  
   img_decoder_input_tensor.push_back(getTensorCopy(img_encoder_out_vision_features, memory_info));
   
   //[image_pe]
@@ -383,8 +330,7 @@ void inference_frame(cv::Mat image,
   std::vector<Ort::Value> img_decoder_out  = img_decoder.run(img_decoder_input_tensor);
 
 
-  /* ailiol: 
-  //Guarda el [masks] del primer i l'actual???
+  /* ailiol:
   if(infer_status.current_frame == 0)[[unlikely]]{
         infer_status.obj_ptr_first.push_back(std::move(img_decoder_out[0]));
     }else{
@@ -397,36 +343,6 @@ void inference_frame(cv::Mat image,
   }
 
   //////////////////////
-  // MLP
-  /////////////////////
-  //input_name= [x] ===> [-1,256] ===> float32
-  //output_name= [x_out] ===> [-1,256] ===> float32
-
-  //1) CREATE MODEL (mlp) //in the main
-  printf("/*********** mlp ************/\n");
-  //printf("Creating model (mlp)...\n");
-  //OrtModel mlp = OrtModel("mlp", "checkpoints/ailia/v2_1/tiny/mlp_hiera_t_2.1.onnx");
-  
-  //2) PREPARE INPUT TENSORS (mlp)
-  printf("Preparing input tensor (mlp)...\n");
-  std::vector<Ort::Value> mlp_input_tensor;
-  
-  //[x] ===> [-1,256]
-  int img_decoder_out_sam_tokens_out_idx = img_decoder.outputIdxByName("sam_tokens_out");
-  TensorCopy img_decoder_out_sam_tokens_out = setTensorCopy(std::move(img_decoder_out[img_decoder_out_sam_tokens_out_idx]));
-  //num elements = [1024]
-  //shape = [[1,4,256]]
-  //type = [float32]
-  //need reshape [1,4,256] -> [4,256] (I guess, maybe would work with [1,256]?)
-  TensorCopy img_decoder_out_sam_tokens_out_first = slice_1xNxC_toNxC(img_decoder_out_sam_tokens_out);
-  printTensorCopyInfo(img_decoder_out_sam_tokens_out_first);
-  mlp_input_tensor.push_back(std::move(getTensorCopy(img_decoder_out_sam_tokens_out_first, memory_info)));    // x
-
-   //3) RUN INFERENCE (mlp)
-  printf("Inference (mlp)...\n");
-  std::vector<Ort::Value> imlp_out  = mlp.run(mlp_input_tensor);
-
-  //////////////////////
   // MEM ENCODER
   /////////////////////
   //alia 
@@ -434,16 +350,6 @@ void inference_frame(cv::Mat image,
   //input_name= [masks] ===> [1,1,1024,1024] ===> float32
   //output_name= [vision_features] ===> [1,64,64,64] ===> float32
   //output_name= [vision_pos_enc] ===> [1,64,64,64] ===> float32
-  ///vs ryouchinsa:
-  //input_name= [mask_for_mem] ===> [1,1,1024,1024]
-  //input_name= [pix_feat] ===> [1,256,64,64]
-  //output_name= [maskmem_features] ==> [1,64,64,64]
-  //output_name= [maskmem_pos_enc] ==> [4096,1,64]
-  //output_name= [temporal_code] ==> [7,1,1,64]
-
-  //
-  //
-  //
 
   
   //1) CREATE MODEL (mem_encoder)
@@ -495,12 +401,6 @@ void inference_frame(cv::Mat image,
   //_add_output_per_object()
   //clear_non_cond_mem_around_input
   //# clear temporary outputs in `temp_output_dict_per_obj`
-
-
-  /* ryouchinsa */
-  //temp.maskmem_features.push_back(std::move(mem_encoder_out[0]));//[maskmem_features] ==> [1,64,64,64]
-  //temp.maskmem_pos_enc.push_back(std::move(mem_encoder_out[1]));//[maskmem_pos_enc] ==> [4096,1,64]
-  //temp.temporal_code.push_back(std::move(mem_encoder_out[2]));//[temporal_code] ==> [7,1,1,64]
 
 
   /////////////////
@@ -567,9 +467,9 @@ int main()
   OrtModel img_encoder = OrtModel("img_encoder", "checkpoints/ailia/v2_1/tiny/image_encoder_hiera_t_2.1.onnx");
   OrtModel prompt_encoder = OrtModel("prompt_encoder", "checkpoints/ailia/v2_1/tiny/prompt_encoder_hiera_t_2.1.onnx");
   OrtModel img_decoder = OrtModel("img_decoder", "checkpoints/ailia/v2_1/tiny/mask_decoder_hiera_t_2.1.onnx");
-  OrtModel mlp = OrtModel("mlp_hiera", "checkpoints/ailia/v2_1/tiny/mlp_hiera_t_2.1.onnx");
   OrtModel mem_encoder = OrtModel("mem_encoder", "checkpoints/ailia/v2_1/tiny/memory_encoder_hiera_t_2.1.onnx");
   OrtModel mem_attention = OrtModel("mem_attention", "checkpoints/ailia/v2_1/tiny/memory_attention_hiera_t_2.1.opt.onnx");
+  OrtModel mlp_hiera = OrtModel("mlp_hiera", "checkpoints/ailia/v2_1/tiny/mlp_hiera_t_2.1.onnx");
   OrtModel obj_ptr_tpos_proj_hiera = OrtModel("obj_ptr_tpos_proj_hiera", "checkpoints/ailia/v2_1/tiny/obj_ptr_tpos_proj_hiera_t_2.1.onnx");
   
   printf("Initializing inference state...\n");
@@ -586,7 +486,7 @@ int main()
       if (!capture.read(frame) || frame.empty()) break;
       printf("Inferencing frame...\n");
       //auto result = sam2->inference(frame);
-      inference_frame(frame, i, memory_info, img_encoder, prompt_encoder, img_decoder, mem_encoder, mem_attention, mlp, obj_ptr_tpos_proj_hiera, inference_state);
+      inference_frame(frame, i, memory_info, img_encoder, prompt_encoder, img_decoder, mem_encoder, mem_attention, mlp_hiera, obj_ptr_tpos_proj_hiera, inference_state);
       cv::imshow("frame", frame);
       cv::waitKey(0);
       i++;
