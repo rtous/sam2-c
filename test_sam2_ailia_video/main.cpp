@@ -4,7 +4,14 @@
 #include <opencv2/core/utils/filesystem.hpp>
 #include <print>
 #include <iostream> 
-#include "onnxruntime_utils.h"
+#include "onnxruntime_utils.h" 
+
+#include <random>
+#include <algorithm>  // for std::clamp
+
+
+//#include "xarray.hpp"
+//#include "xtensor/xio.hpp"
 
 //NOTE: The data() function returns a pointer to the block of memory where a vector's elements are stored.
 
@@ -57,6 +64,39 @@ cv::Mat interpolate(const cv::Mat& low_res_multimasks, cv::Size image_size) {
     return high_res_multimasks;
 }
 */
+
+std::vector<float> trunc_normal(
+    const std::vector<size_t>& shape,
+    float std = 0.02f,
+    float a = -2.0f,
+    float b = 2.0f
+) {
+    // Compute total number of elements
+    size_t total_size = std::accumulate(shape.begin(), shape.end(), size_t(1), std::multiplies<size_t>());
+
+    std::cout << "trunc_normal with shape = { ";
+    for (size_t s : shape) std::cout << s << " ";
+    std::cout << "} → total size = " << total_size << "\n";
+
+    std::vector<float> data;
+    data.reserve(total_size);
+
+    // RNG setup
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<float> dist(0.0f, std);
+
+    float lower = a * std;
+    float upper = b * std;
+
+    // Fill vector
+    for (size_t i = 0; i < total_size; ++i) {
+        float val = dist(gen);
+        data.push_back(std::clamp(val, lower, upper));
+    }
+
+    return data;
+}
 
 class InferenceState {
 public:
@@ -419,6 +459,7 @@ void inference_frame(cv::Mat image,
   //type = [float32]
   //need reshape [1,4,256] -> [4,256] (I guess, maybe would work with [1,256]?)
   TensorCopy img_decoder_out_sam_tokens_out_first = slice_1xNxC_toNxC(img_decoder_out_sam_tokens_out);
+  //TODO: Also works if slice_1xNxC_toNxC, change if problems
   printTensorCopyInfo(img_decoder_out_sam_tokens_out_first);
   mlp_input_tensor.push_back(std::move(getTensorCopy(img_decoder_out_sam_tokens_out_first, memory_info)));    // x
 
@@ -501,6 +542,97 @@ void inference_frame(cv::Mat image,
   //temp.maskmem_features.push_back(std::move(mem_encoder_out[0]));//[maskmem_features] ==> [1,64,64,64]
   //temp.maskmem_pos_enc.push_back(std::move(mem_encoder_out[1]));//[maskmem_pos_enc] ==> [4096,1,64]
   //temp.temporal_code.push_back(std::move(mem_encoder_out[2]));//[temporal_code] ==> [7,1,1,64]
+
+  //////////////////////
+  // STORE IN MEMORY
+  //////////////////////
+  /*
+  Inputs
+
+  From memory encoder:
+  //output_name= [vision_features] ===> [1,64,64,64]
+  //output_name= [vision_pos_enc] ===> [1,64,64,64]
+
+  From MLP:
+  [x_out] ===> [-1,256]
+
+  The output should be used from the memory attention:
+
+  //input_name= [curr] ===> [4096,1,256] ===> float32
+  //input_name= [memory_1] ===> [-1,1,64] ===> float32
+  //input_name= [memory_2] ===> [-1,1,64] ===> float32
+  //input_name= [curr_pos] ===> [4096,1,256] ===> float32
+  //input_name= [memory_pos_1] ===> [-1,1,64] ===> float32
+  //input_name= [memory_pos_2] ===> [-1,1,64] ===> float32
+  //input_name= [attention_mask_1] ===> [-1,1] ===> bool
+  //input_name= [attention_mask_2] ===> [-1,1] ===> bool
+  */
+
+  //just debugging trunc_normal
+  std::vector<size_t> shape = {2, 3, 4};  // 3D tensor (can be N-D)
+  std::vector<float> values = trunc_normal(shape);
+
+  size_t total_size = values.size();
+  for (size_t i = 0; i < total_size; ++i) {
+      std::cout << "values[" << i << "] = " << values[i] << "\n";
+  }
+
+  /*First frame:
+  def trunc_normal(size, std=0.02, a=-2, b=2):
+    values = np.random.normal(loc=0., scale=std, size=size)
+    values = np.clip(values, a*std, b*std)
+    return values.astype(np.float32)
+
+  self.no_mem_embed = trunc_normal((1, 1, self.hidden_dim), std=0.02)
+  self.no_mem_pos_enc = trunc_normal((1, 1, self.hidden_dim), std=0.02)
+  # for initial conditioning frames, encode them without using any previous memory
+    if self.directly_add_no_mem_embed:
+        # directly add no-mem embedding (instead of using the transformer encoder)
+        pix_feat_with_mem = current_vision_feats[-1] + self.no_mem_embed
+        pix_feat_with_mem = np.transpose(pix_feat_with_mem, (1, 2, 0)).reshape(B, C, H, W)
+        return pix_feat_with_mem
+
+    # Use a dummy token on the first frame (to avoid empty memory input to tranformer encoder)
+    to_cat_memory = [self.no_mem_embed.expand(1, B, self.mem_dim)]
+    to_cat_memory_pos_embed = [self.no_mem_pos_enc.expand(1, B, self.mem_dim)]
+
+
+    # Step 2: Concatenate the memories and forward through the transformer encoder
+    memory = np.concatenate(to_cat_memory, axis=0)
+    memory_pos_embed = np.concatenate(to_cat_memory_pos_embed, axis=0)
+
+    num_obj_ptr_tokens_numpy = np.array((num_obj_ptr_tokens)).astype(np.int64)
+    if self.debug:
+        print("curr", np.sum(current_vision_feats[0]))
+        print("memory", np.sum(memory))
+        print("curr_pos", np.sum(current_vision_pos_embeds[0]))
+        print("memory_pos", np.sum(memory_pos_embed))
+        print("num_obj_ptr_tokens", np.sum(num_obj_ptr_tokens_numpy))
+    if self.benchmark:
+        start = int(round(time.time() * 1000))
+
+    if self.version == "2.1":
+        memory_1 = memory[:-num_obj_ptr_tokens,:,:]
+        memory_2 = memory[-num_obj_ptr_tokens:,:,:]
+        memory_pos_embed_1 = memory_pos_embed[:-num_obj_ptr_tokens,:,:]
+        memory_pos_embed_2 = memory_pos_embed[-num_obj_ptr_tokens:,:,:]
+        attention_mask_1 = np.zeros((memory_1.shape[0], memory_1.shape[1]), dtype=np.bool_)
+        attention_mask_2 = np.zeros((memory_2.shape[0], memory_2.shape[1]), dtype=np.bool_)
+        attention_mask_1[:memory_1.shape[0],:] = True
+        attention_mask_2[:memory_2.shape[0],:] = True
+  */
+
+
+
+
+  //Coses barrejades:
+  //NOTE: conditioned frames: els que han rebut clicks?
+  //num_maskmem = 7,  # default 1 input frame + 6 previous frames
+  //temp_output_dict_per_obj (consolidate per-object temporary outputs)
+  //consolidated_frame_inds (indices of those frames already consolidated)
+
+  //First frame:
+
 
 
   /////////////////

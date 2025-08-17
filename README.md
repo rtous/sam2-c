@@ -5,6 +5,10 @@ IMPORTANT:
 
 LOG:
 	(top more recent)
+	- Adapting TensorCopy to XTENSOR. Need to use it yet...
+	- Really installing XTENSOR will help!!
+	- Implementing trunc_normal (considering using xtensor)
+	- He aconseguit executar el MLP però m'ha calgut redimensionar el tensor
 	- He aconseguit executar el memory encoder però cal:
 		- verificar que el resultat és el mateix que en Python
 		- he reescalat les màscares però hi ha dues opcions i no tinc clar si he triat la correcta (mirar codi)
@@ -22,6 +26,11 @@ LOG:
 		- https://deepwiki.com/axinc-ai/ailia-models/4.1-segment-anything-2
 	- Alternativa: provar la versió onnx amb python de axinc-ai
 	- Intentant WAY2 (Aimol-l), problemes per compilar
+
+TODO:
+	- WARNING amb la redimensió que faig del output del MLP
+	- WARNING amb la redimensió que faig de les màscares d'entrada al memory encoder
+
 
 1. WAY 1 (from scratch)
 

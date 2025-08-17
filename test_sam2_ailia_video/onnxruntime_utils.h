@@ -7,7 +7,13 @@
 #include <fstream>
 #include <iostream>
 #include <cstring>
+#include "xtensor/containers/xarray.hpp"
+#include "xtensor/containers/xadapt.hpp"
 
+
+//Information about a input/output"node" or "port of the ONNX model.
+//Parts of the shape can be unknown (-1), dynamic.
+//Similar information can be obtained from a tensor (see printTensorInfo).
 struct InputOutput {
         int input_or_ouput;//0 input, 1 output
         char* name;
@@ -15,6 +21,7 @@ struct InputOutput {
         std::vector<int64_t> shape; // may contain -1 for dynamic dims
 };
 
+//shape vector to string
 static std::string shape2string(std::vector<int64_t> shape) {
     std::string dim_str = "[";
     for (size_t i = 0; i < shape.size(); ++i) {
@@ -38,6 +45,41 @@ public:
   int size;
 };
 
+class TensorCopyXTENSOR {
+public:
+  InputOutput info;
+  xt::xarray<float> data;
+  int size;
+};
+
+
+TensorCopyXTENSOR setTensorCopyXTENSOR(Ort::Value src) {
+  TensorCopyXTENSOR tcopy;
+  auto tensor_info = src.GetTensorTypeAndShapeInfo();
+  std::vector<int64_t> shape = tensor_info.GetShape();
+  auto src_size = tensor_info.GetElementCount();
+  auto type = tensor_info.GetElementType();
+  if (type != 1) {
+    printf("ERROR: Trying to use setTensorCopy with a non-float tensor.\n");
+    exit(-1);
+  }
+  tcopy.info.shape = shape;
+  tcopy.info.type = type;
+  tcopy.size = src_size;
+  //std::vector<float> obj_ptrs(src_size); // first+recent // 16*256
+  //tcopy.data.resize(src_size);
+  const float* tensor_data = src.GetTensorData<float>();
+  //std::copy_n(tensor_data, src_size, std::begin(tcopy.data));
+
+  // Wrap ONNX Runtime data as a view
+  //const float* tensor_data = src.GetTensorData<float>();
+  std::vector<size_t> shape_size_t(shape.begin(), shape.end());
+  auto view = xt::adapt(tensor_data, src_size, xt::no_ownership(), shape_size_t);
+
+  tcopy.data = xt::xarray<float>(view);//deep copy owns its memory
+  return tcopy;
+}
+
 TensorCopy setTensorCopy(Ort::Value src) {
   TensorCopy tcopy;
   auto tensor_info = src.GetTensorTypeAndShapeInfo();
@@ -58,7 +100,7 @@ TensorCopy setTensorCopy(Ort::Value src) {
   return tcopy;
 }
 
-
+//Don't need to change it at all.
 Ort::Value getTensorCopy(TensorCopy& tcopy, Ort::MemoryInfo& memory_info) {
   auto tensor = Ort::Value::CreateTensor<float>(
                   memory_info,
@@ -69,8 +111,6 @@ Ort::Value getTensorCopy(TensorCopy& tcopy, Ort::MemoryInfo& memory_info) {
                   );
   return tensor;
 }
-
-
 
 static const char* OnnxTypeToString(ONNXTensorElementDataType type) {
     switch (type) {
@@ -149,6 +189,7 @@ void printTensorCopyInfo(TensorCopy tcopy) {
 }
 
 //NOT USED YET
+/*
 TensorCopy slice_1xNxC_to1x1xC(TensorCopy tcopy) {
   TensorCopy tcopy_out;
   int C = tcopy.info.shape[tcopy.info.shape.size()-1];
@@ -160,7 +201,9 @@ TensorCopy slice_1xNxC_to1x1xC(TensorCopy tcopy) {
   std::copy_n(tcopy.data.data(), C, std::begin(tcopy_out.data));
   return tcopy_out;
 }
+*/
 
+//Used to reshape the outut of MLP
 TensorCopy slice_1xNxC_toNxC(TensorCopy tcopy) {
   TensorCopy tcopy_out;
   tcopy_out.info.shape = tcopy.info.shape;
@@ -169,6 +212,19 @@ TensorCopy slice_1xNxC_toNxC(TensorCopy tcopy) {
   tcopy_out.size = tcopy.size;
   tcopy_out.data.resize(tcopy_out.size);
   std::copy_n(tcopy.data.data(), tcopy_out.size, std::begin(tcopy_out.data));
+  return tcopy_out;
+}
+
+//Not used but also works to reshape the outut of MLP so keep if previous fail
+TensorCopy slice_1xNxC_to1xC(TensorCopy tcopy) {
+  TensorCopy tcopy_out;
+  tcopy_out.info.shape = tcopy.info.shape;
+  int C = tcopy.info.shape[tcopy.info.shape.size()-1];
+  tcopy_out.info.shape.erase(tcopy_out.info.shape.begin()); 
+  tcopy_out.info.type = tcopy.info.type;
+  tcopy_out.size = tcopy.size;
+  tcopy_out.data.resize(tcopy_out.size);
+  std::copy_n(tcopy.data.data(), C, std::begin(tcopy_out.data));
   return tcopy_out;
 }
 

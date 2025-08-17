@@ -19,9 +19,22 @@ else()
 
 endif()
 
+set(XTENSOR_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/xtensor/include")
+set(XTL_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/xtl/include")
+
+#set(XTENSOR_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../xtensor/include")
+#set(XTL_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../xtl/include")
+
+
+#message("XTENSOR_INCLUDE_DIR = ${XTENSOR_INCLUDE_DIR}")
+#message("XTL_INCLUDE_DIR = ${XTL_INCLUDE_DIR}")
+#message("XSIMD_INCLUDE_DIR = ${XSIMD_INCLUDE_DIR}")
 
 target_include_directories(
     ${EXAMPLE_TARGET} PUBLIC 
+    ${XTENSOR_INCLUDE_DIR}
+    ${XTL_INCLUDE_DIR}
+    #${XSIMD_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../../onnxruntime/include/onnxruntime/core/common
     ${CMAKE_CURRENT_SOURCE_DIR}/../../onnxruntime/include/onnxruntime/core/eager
     ${CMAKE_CURRENT_SOURCE_DIR}/../../onnxruntime/include/onnxruntime/core/framework
@@ -35,11 +48,13 @@ target_include_directories(
 if(MSVC)
 	target_link_libraries(
 		${EXAMPLE_TARGET} PRIVATE 
+		xsimd
+		xtl
+		xtensor
 		${OpenCV_LIBS} 
 		${CMAKE_THREAD_LIBS_INIT}
 		
 		#${ONNXRUNTIME_DIR}/Debug/onnxruntime.lib
-
 
 		${ONNXRUNTIME_DIR}/Debug/onnxruntime_session.lib  
 		${ONNXRUNTIME_DIR}/Debug/onnxruntime_optimizer.lib

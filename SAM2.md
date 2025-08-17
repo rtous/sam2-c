@@ -11,7 +11,11 @@ memory_encoder
 
 Code in SAM2.cpp:
 
-image_encoder->mem_attention->img_decoder->mem_encoder
+image_encoder->
+  mem_attention->
+    img_decoder---> (pix_feat,masks)mem_encoder->(vision_features,vision_pos_enc)
+                |                 
+             (sam_tokens_out)->mlp->???
 	
 
 ///////////
@@ -43,7 +47,9 @@ image_encoder->mem_attention->img_decoder->mem_encoder
 	    process_frame
 	    	propagate_in_video
 	    		_run_single_frame_inference 
-					track_step (also from _get_empty_mask_ptr)
+	    			_get_image_feature() //Compute the image features on a given frame
+	    				- image_encoder.run ---- ENCODER ----
+					current_out = track_step() (also from _get_empty_mask_ptr)
 						_prepare_memory_conditioned_features 
 							if first frame:
 								 pix_feat_with_mem = current_vision_feats[-1] + self.no_mem_embed
@@ -76,12 +82,20 @@ image_encoder->mem_attention->img_decoder->mem_encoder
 							mask_decoder.run()  ---- DECODER ----
 
 							forward_postprocess
-
+								sam_tokens_out = mask_tokens_out[:, 0:1]  # [b, 1, c] shape
 							mlp.run ---- MLP ---- # Extract object pointer from the output token
-	
+				_add_output_per_object()	
 			        
 
-	
+memory store:
+
+- object-specific embeddings, These are used like "keys" when propagating to future frames.
+- The segmentation masks from this frame are encoded and fused with the frame’s vision features.
+- This produces mask memory tokens that are stored in output_dict["cond_frame_outputs"].
+- All initial conditioning frames are given a temporal position of 0 (t=0).
+- The method outputs a pixel-level feature map (pix_feat).
+- Also stores the object-conditioned memory tokens so future frames can attend to them.
+
 (grandària 1024x1024)
 def interpolate(low_res_multimasks, image_size):
     high_res_multimasks = np.zeros((low_res_multimasks.shape[0], low_res_multimasks.shape[1], image_size[0], image_size[1]), dtype=np.float32)

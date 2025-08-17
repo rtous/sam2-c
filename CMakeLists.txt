@@ -3,6 +3,10 @@
 #cmake_minimum_required(VERSION 3.12)
 cmake_minimum_required(VERSION 3.16) #To avoid the error between RuntimeLibrary
 
+set(CMAKE_CXX_STANDARD 20)        # required by xtensor
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 project("back2black")
 
 if (NOT XCODE AND NOT MSVC AND NOT CMAKE_BUILD_TYPE)
@@ -28,6 +32,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 #set (CMAKE_CXX_FLAGS "-lstdc++fs -std=c++17") 
 
+add_subdirectory(third_party)
 add_subdirectory(onnxruntime) #not in third-party because PARENT_SCOPE visibility only one directory up
 add_subdirectory(test_onnx)
 add_subdirectory(test_sam2_aimol)
